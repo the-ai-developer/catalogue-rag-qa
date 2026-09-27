@@ -148,10 +148,38 @@ class TestFaissStore:
                        "text": "y", "vector": _vec(2)}])
         assert store.dirty
         assert store.save_if_dirty(min_interval=3600) is False
+
         # force overrides the interval
         assert store.save_if_dirty(min_interval=3600, force=True) is True
         assert not store.dirty
 
+
+    def test_first_save_does_not_depend_on_host_uptime(self, store, monkeypatch):
+        """Regression: the first autosave must not be gated on time.monotonic().
+
+        `_last_saved` used to start at 0.0 while the interval check compared
+        against time.monotonic(), which Linux measures from boot. On a host
+        that had been up for less than min_interval the first save was silently
+        skipped. This failed on a fresh CI runner and passed on a laptop.
+        """
+        import app.faiss_store as mod
+
+        clock = {"t": 5.0}                      # pretend we booted 5s ago
+        monkeypatch.setattr(mod.time, "monotonic", lambda: clock["t"])
+
+        store.upsert([{"faiss_id": 3, "item_id": "c", "modality": "text",
+                       "text": "z", "vector": _vec(4)}])
+        assert store.save_if_dirty(min_interval=3600) is True
+        assert not store.dirty
+
+        # and the interval is still honoured once a save has happened
+        clock["t"] += 10
+        store.upsert([{"faiss_id": 4, "item_id": "d", "modality": "text",
+                       "text": "w", "vector": _vec(5)}])
+        assert store.save_if_dirty(min_interval=3600) is False
+
+        clock["t"] += 3601
+        assert store.save_if_dirty(min_interval=3600) is True
     def test_index_survives_a_fresh_store_instance(self, store, tmp_path):
         """The regression that made every model restart empty the index."""
         store.upsert([{"faiss_id": 5, "item_id": "a", "modality": "text",

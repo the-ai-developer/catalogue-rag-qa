@@ -53,7 +53,11 @@ class FaissStore:
         self._meta: Dict[int, Dict[str, Any]] = {}
         self._item_index: Dict[str, set] = {}
         self._dirty = False
-        self._last_saved = 0.0
+        # None means "never written". It must not be 0.0: time.monotonic() is
+        # measured from boot on Linux, so a 0.0 sentinel makes the first
+        # autosave conditional on the host's uptime and silently skips it on
+        # anything freshly booted.
+        self._last_saved: Optional[float] = None
 
     @property
     def dirty(self) -> bool:
@@ -76,7 +80,8 @@ class FaissStore:
             if not self._dirty:
                 return False
             now = time.monotonic()
-            if not force and (now - self._last_saved) < min_interval:
+            if (not force and self._last_saved is not None
+                    and (now - self._last_saved) < min_interval):
                 return False
             try:
                 self._save_locked()

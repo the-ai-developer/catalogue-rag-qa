@@ -40,8 +40,12 @@ jobs:
       - name: No hardcoded absolute paths from other machines
         run: |
           set -euo pipefail
+          # .github/ is skipped on purpose: this file points at the runner's
+          # own browser cache, and flagging that would mask a real leak.
           if grep -rnE '(^|[^A-Za-z0-9_])/(home|Users)/[a-z]' \
-               --include='Makefile' --include='*.mk' --include='*.yml' --include='*.yaml' .; then
+               --exclude-dir=.github \
+               --include='Makefile' --include='*.mk' \
+               --include='*.yml' --include='*.yaml' .; then
             echo "::error::absolute home paths from another machine leaked in" >&2
             exit 1
           fi
