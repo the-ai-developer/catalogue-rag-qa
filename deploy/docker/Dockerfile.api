@@ -1,0 +1,30 @@
+# Go API — multi-stage, static binary on distroless.
+FROM golang:1.22-bookworm AS build
+WORKDIR /src
+COPY services/api/go.mod services/api/go.sum ./
+RUN go mod download
+COPY --chmod=0444 services/api/ .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+    -o /out/api ./cmd/server
+
+# Give the assets directory to the runtime uid *in the image*. Docker seeds a
+# fresh named volume from the image directory's contents and ownership, so
+# `assets:/data/assets` ends up writable by 65532 instead of root-owned — which
+# is why photo upload used to fail with a bare 500 "storage" under compose.
+# The model image does the same plus an entrypoint for pre-existing volumes;
+# distroless has no shell, so image-side ownership is the only lever here.
+FROM busybox AS dirs
+RUN mkdir -p /data/assets && chown 65532:65532 /data/assets
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/api /api
+COPY --from=dirs --chown=65532:65532 /data /data
+# --chmod is load-bearing: a plain COPY preserves the build-context mode, and a
+# checked-out migration can easily be 0600, which uid 65532 cannot read. The
+# image then fails at startup with "permission denied" rather than at build
+# time. 0555 and not 0444: the argument applies to the directory too, and a
+# directory needs the execute bit to be traversable.
+COPY --chmod=0555 db/migrations /db/migrations
+ENV MIGRATIONS_DIR=/db/migrations
+EXPOSE 8080
+ENTRYPOINT ["/api"]

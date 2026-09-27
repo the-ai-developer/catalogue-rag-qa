@@ -1,0 +1,45 @@
+# Python model-server (GPU): FAISS + SBERT + CLIP + T5.
+FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+WORKDIR /app
+
+ARG UID=10001
+ARG GID=10001
+
+COPY --chmod=0444 services/model-server/pyproject.toml /app/services/model-server/pyproject.toml
+COPY --chmod=0444 services/model-server/app /app/services/model-server/app
+COPY --chmod=0755 deploy/docker/entrypoint-model.sh /usr/local/bin/entrypoint-model.sh
+COPY --chmod=0444 ml /app/ml
+
+# Install the pinned dependency set. No `|| pip install ...` fallback: swallowing
+# the error here used to replace the base image's CUDA torch with whatever PyPI
+# resolved, turning a visible build failure into a runtime CUDA mystery.
+RUN pip install --no-cache-dir "/app/services/model-server[ml,dev]"
+
+WORKDIR /app/services/model-server
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    FAISS_INDEX_DIR=/data/faiss \
+    FAISS_AUTOSAVE_SECS=30 \
+    ASSET_ROOT=/data/assets \
+    DESC_MODEL_DIR=/app/ml/checkpoints/t5-description \
+    PROJECTION_PATH=/app/ml/checkpoints/projection/projection.pt
+
+# Docker creates named volumes root-owned, so the non-root runtime user cannot
+# persist the FAISS index or the checkpoints unless they are chowned first. The
+# entrypoint does that as root and then drops to appuser via setpriv.
+RUN set -eux; \
+    groupadd --gid "${GID}" appuser 2>/dev/null || true; \
+    useradd --uid "${UID}" --gid "${GID}" --create-home appuser 2>/dev/null || true; \
+    mkdir -p /data/faiss /app/ml/checkpoints; \
+    # /data/assets is NOT created or chowned here: it is shared with the api
+    # container, which runs as a different uid and owns the writes. Creating it
+    # here made this container the volume's seeder and the api lost write access.
+    chown -R "${UID}:${GID}" /data/faiss /app/ml/checkpoints; \
+    chmod +x /usr/local/bin/entrypoint-model.sh
+
+USER root
+EXPOSE 8090
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=5 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/readyz').status==200 else 1)"
+ENTRYPOINT ["/usr/local/bin/entrypoint-model.sh"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "1"]

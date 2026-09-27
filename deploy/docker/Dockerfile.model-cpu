@@ -1,0 +1,60 @@
+# Python model-server — CPU / smoke image.
+#
+# The default deploy/docker/Dockerfile.model is a 3.8 GB CUDA image, so the
+# documented `make up` cannot work on a machine without an NVIDIA GPU, and CI
+# cannot boot the stack at all. This image is the small, GPU-free counterpart:
+#
+#   * no torch / transformers / sentence-transformers
+#   * EMBEDDER_BACKEND=hash gives the deterministic CPU embedder
+#   * the untrained-projection degradation is reported, so nothing pretends to
+#     be a working shared space
+#
+# It is for local development, smoke tests and CI. Production serving of real
+# embeddings still needs the CUDA image.
+FROM python:3.12-slim AS base
+
+ARG UID=10001
+ARG GID=10001
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --chmod=0444 services/model-server/pyproject.toml /app/services/model-server/pyproject.toml
+COPY --chmod=0444 services/model-server/app /app/services/model-server/app
+COPY --chmod=0755 deploy/docker/entrypoint-model.sh /usr/local/bin/entrypoint-model.sh
+
+# The pinned base dependencies only: fastapi, uvicorn, pydantic, numpy,
+# faiss-cpu. No `|| pip install …` fallback — that used to hide a failed install
+# behind a second, unpinned attempt.
+RUN pip install --no-cache-dir "/app/services/model-server[dev]"
+
+WORKDIR /app/services/model-server
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    EMBEDDER_BACKEND=hash \
+    MODEL_DEVICE=cpu \
+    EMBED_DIM=512 \
+    FAISS_INDEX_DIR=/data/faiss \
+    FAISS_AUTOSAVE_SECS=30 \
+    ASSET_ROOT=/data/assets \
+    DESC_MODEL_DIR=/app/ml/checkpoints/t5-description \
+    PROJECTION_PATH=/app/ml/checkpoints/projection/projection.pt
+
+RUN set -eux; \
+    groupadd --gid "${GID}" appuser 2>/dev/null || true; \
+    useradd --uid "${UID}" --gid "${GID}" --create-home appuser 2>/dev/null || true; \
+    mkdir -p /data/faiss /app/ml/checkpoints; \
+    # /data/assets is NOT created or chowned here: it is shared with the api
+    # container, which runs as a different uid and owns the writes. Creating it
+    # here made this container the volume's seeder and the api lost write access.
+    chown -R "${UID}:${GID}" /data/faiss /app/ml/checkpoints; \
+    chmod +x /usr/local/bin/entrypoint-model.sh
+
+USER root
+EXPOSE 8090
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+  CMD curl -fsS http://localhost:8090/readyz || exit 1
+ENTRYPOINT ["/usr/local/bin/entrypoint-model.sh"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "1"]

@@ -1,0 +1,345 @@
+# k8s — apply order: namespace → configmap/secret → pvc → model → api → web
+#
+#   kubectl apply -f namespace.yaml -f configmap.yaml -f secret.yaml
+#   kubectl apply -f pvc.yaml -f model.yaml -f api.yaml -f web.yaml
+#   kubectl apply -f trainer-job.yaml      # 2×T4 fine-tune job (on demand)
+#
+# Production notes:
+#   · Use managed PostgreSQL (RDS/Cloud SQL); set DATABASE_URL in the secret.
+#   · model Deployment requests nvidia.com/gpu: 1 per replica; scale by replicas.
+#   · trainer Job requests nvidia.com/gpu: "2" (both T4s) with restartPolicy OnFailure.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: catalogue-ai
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: catalogue-config
+  namespace: catalogue-ai
+data:
+  HTTP_ADDR: ":8080"
+  MODEL_SERVER_URL: "http://model:8090"
+  ASSET_STORAGE_DIR: "/data/assets"
+  ASSET_PUBLIC_BASE_URL: "/assets"
+  LOG_LEVEL: "info"
+  MODEL_DEVICE: "cuda"
+  EMBED_DIM: "512"
+  FAISS_INDEX_DIR: "/data/faiss"
+  ASSET_ROOT: "/data/assets"
+  TEXT_INDEX_WEIGHT: "0.6"
+  IMAGE_INDEX_WEIGHT: "0.4"
+  CITATION_SUPPORT_THRESHOLD: "0.35"
+  MAX_CHUNK_TOKENS: "220"
+  CHUNK_OVERLAP_TOKENS: "40"
+  MODEL_TIMEOUT_SHORT: "5s"
+  MODEL_TIMEOUT_LONG: "60s"
+  FAISS_AUTOSAVE_SECS: "30"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: catalogue-secret
+  namespace: catalogue-ai
+type: Opaque
+  # PLACEHOLDER — the api refuses to boot while these still say CHANGE_ME /
+  # REPLACE_WITH_SHA256_HEX. Generate real values:
+  #   python3 -c "import hashlib;print(hashlib.sha256(b'MY-SECRET').hexdigest())"
+  #   kubectl create secret generic catalogue-secret \
+  #     --from-literal=DATABASE_URL=... --from-literal=BOOTSTRAP_API_KEYS=... \
+  #     --from-literal=MODEL_SHARED_SECRET=... -n catalogue-ai
+stringData:
+  DATABASE_URL: "postgres://catalogue:CHANGE_ME@postgres:5432/catalogue?sslmode=disable"
+  BOOTSTRAP_API_KEYS: "admin:REPLACE_WITH_SHA256_HEX:admin"
+  MODEL_SHARED_SECRET: "REPLACE_WITH_SHA256_HEX"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: assets-pvc
+  namespace: catalogue-ai
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources: { requests: { storage: 20Gi } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: faiss-pvc
+  namespace: catalogue-ai
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 5Gi } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: checkpoints-pvc
+  namespace: catalogue-ai
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources: { requests: { storage: 50Gi } }
+---
+# Mounted by the trainer Job at /app/ml/data. It was referenced but never
+# declared, so `kubectl apply -f k8s.yaml` failed on the Job.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ml-data-pvc
+  namespace: catalogue-ai
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources: { requests: { storage: 100Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model
+  namespace: catalogue-ai
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: model } }
+  template:
+    metadata:
+      labels: { app: model }
+    spec:
+      containers:
+        - name: model
+          image: catalogue-model:latest
+          ports: [{ containerPort: 8090 }]
+          envFrom:
+            - configMapRef: { name: catalogue-config }
+          resources:
+            limits: { nvidia.com/gpu: "1", memory: 12Gi }
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8090 }
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 4
+          livenessProbe:
+            # /healthz, not /readyz: a dependency blip must not restart the pod.
+            httpGet: { path: /healthz, port: 8090 }
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: assets, mountPath: /data/assets }
+            - { name: faiss, mountPath: /data/faiss }
+            - { name: checkpoints, mountPath: /app/ml/checkpoints }
+      volumes:
+        - { name: assets, persistentVolumeClaim: { claimName: assets-pvc } }
+        - { name: faiss, persistentVolumeClaim: { claimName: faiss-pvc } }
+        - { name: checkpoints, persistentVolumeClaim: { claimName: checkpoints-pvc } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model
+  namespace: catalogue-ai
+spec:
+  selector: { app: model }
+  ports: [{ port: 8090, targetPort: 8090 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: catalogue-ai
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: api } }
+  template:
+    metadata:
+      labels: { app: api }
+    spec:
+      containers:
+        - name: api
+          image: catalogue-api:latest
+          ports: [{ containerPort: 8080 }]
+          envFrom:
+            - configMapRef: { name: catalogue-config }
+            - secretRef: { name: catalogue-secret }
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8080 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 250m, memory: 256Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - { name: assets, mountPath: /data/assets }
+      volumes:
+        - { name: assets, persistentVolumeClaim: { claimName: assets-pvc } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: catalogue-ai
+spec:
+  selector: { app: api }
+  ports: [{ port: 8080, targetPort: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: catalogue-ai
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: web } }
+  template:
+    metadata:
+      labels: { app: web }
+    spec:
+      containers:
+        - name: web
+          image: catalogue-web:latest
+          ports: [{ containerPort: 80 }]
+          readinessProbe:
+            httpGet: { path: /healthz, port: 80 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 80 }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          volumeMounts:
+            - { name: assets, mountPath: /data/assets, readOnly: true }
+      volumes:
+        - { name: assets, persistentVolumeClaim: { claimName: assets-pvc } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: catalogue-ai
+spec:
+  selector: { app: web }
+  ports: [{ port: 80, targetPort: 80 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web
+  namespace: catalogue-ai
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    cert-manager.io/cluster-issuer: letsencrypt-production
+spec:
+  tls:
+    # Requires cert-manager. Without it, drop `tls:` and terminate upstream.
+    - hosts: [catalogue.example.com]
+      secretName: catalogue-tls
+  rules:
+    - host: catalogue.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: web, port: { number: 80 } } }
+          - path: /api
+            pathType: Prefix
+            backend: { service: { name: api, port: { number: 8080 } } }
+          # ASSET_PUBLIC_BASE_URL=/assets, so product photos must be routable
+          # or every uploaded image 404s in production.
+          - path: /assets
+            pathType: Prefix
+            backend: { service: { name: web, port: { number: 80 } } }
+---
+# 2×T4 fine-tune: one-shot Job, both GPUs, restartPolicy OnFailure.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: t5-description-trainer
+  namespace: catalogue-ai
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: trainer
+          image: catalogue-model:latest
+          command:
+            - torchrun
+            - --nproc_per_node=2
+            - /app/ml/training/train_t5_description.py
+            - --train=/app/ml/data/generated/train.jsonl
+            - --val=/app/ml/data/generated/val.jsonl
+            - --out=/app/ml/checkpoints/t5-description
+          resources:
+            limits: { nvidia.com/gpu: "2", memory: 24Gi }
+          volumeMounts:
+            - { name: checkpoints, mountPath: /app/ml/checkpoints }
+            - { name: ml-data, mountPath: /app/ml/data }
+      volumes:
+        - { name: checkpoints, persistentVolumeClaim: { claimName: checkpoints-pvc } }
+        - { name: ml-data, persistentVolumeClaim: { claimName: ml-data-pvc } }
+
+---
+# Default-deny between the workloads, then allow only what each one needs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: catalogue-ai
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: catalogue-ai
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } } }]
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+---
+# The model server is the only thing that should reach Postgres, and the api is
+# the only thing that should reach the model server.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-egress
+  namespace: catalogue-ai
+spec:
+  podSelector:
+    matchLabels: { app: api }
+  policyTypes: [Egress]
+  egress:
+    - to: [{ podSelector: { matchLabels: { app: postgres } } }]
+    - to: [{ podSelector: { matchLabels: { app: model } } }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-ingress
+  namespace: catalogue-ai
+spec:
+  podSelector:
+    matchLabels: { app: web }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ namespaceSelector: {} }]
+      ports: [{ port: 80 }]

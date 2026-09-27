@@ -1,0 +1,140 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: catalogue
+      POSTGRES_PASSWORD: catalogue
+      POSTGRES_DB: catalogue
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # NOTE: db/migrations is deliberately NOT mounted into
+    # docker-entrypoint-initdb.d. The api owns the migration ledger
+    # (schema_migrations) and would re-apply SQL that initdb already ran.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catalogue -d catalogue"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      # Without a start_period the first checks run during initdb, where
+      # pg_isready can succeed before the TCP listener is actually accepting
+      # connections — the api then starts, gets connection refused, and exits.
+      start_period: 20s
+    ports:
+      - "5432:5432"
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.api
+    environment:
+      DATABASE_URL: postgres://catalogue:catalogue@postgres:5432/catalogue?sslmode=disable
+      HTTP_ADDR: ":8080"
+      MODEL_SERVER_URL: http://model:8090
+      MODEL_SHARED_SECRET: ${MODEL_SHARED_SECRET:-local-model-secret}
+      ASSET_STORAGE_DIR: /data/assets
+      ASSET_PUBLIC_BASE_URL: /assets
+      # Three roles so role enforcement is actually exercised locally and in CI.
+      # Secrets: local-dev-admin-key / local-dev-editor-key / local-dev-viewer-key
+      BOOTSTRAP_API_KEYS: ${BOOTSTRAP_API_KEYS:-local-admin:6f7593f48eb57fc679c0b173ee15f27ea20f32b92d146e414327218a079ab479:admin,local-editor:c83926d81cad00e46578cfc12a35e36fc9d20de2468c843831fc53635b6ab983:editor,local-viewer:30349f7afd041a94444a542bf979896d7d740cf90efe64c4d55571653f5c8ec4:viewer}
+      LOG_LEVEL: info
+      MODEL_TIMEOUT_LONG: 60s
+    volumes:
+      - assets:/data/assets
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "/api", "-healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  model:
+    # MODEL_DOCKERFILE selects the image: the 3.8 GB CUDA one by default, or
+    # Dockerfile.model-cpu for a machine with no GPU (and for CI, which cannot
+    # pull the CUDA image). See .env.example.
+    build:
+      context: .
+      dockerfile: ${MODEL_DOCKERFILE:-deploy/docker/Dockerfile.model}
+    environment:
+      MODEL_DEVICE: ${MODEL_DEVICE:-cuda}
+      MODEL_SHARED_SECRET: ${MODEL_SHARED_SECRET:-local-model-secret}
+      EMBED_DIM: "512"
+      FAISS_INDEX_DIR: /data/faiss
+      ASSET_ROOT: /data/assets
+      TEXT_INDEX_WEIGHT: "0.6"
+      IMAGE_INDEX_WEIGHT: "0.4"
+    volumes:
+      - assets:/data/assets
+      - faiss:/data/faiss
+      - checkpoints:/app/ml/checkpoints
+    # GPU serving — uncomment on a GPU host (requires nvidia-container-toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/readyz').status==200 else 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.web
+    volumes:
+      - assets:/data/assets:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8081:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  # 2×T4 training: docker compose --profile trainer run --rm trainer
+  trainer:
+    profiles: ["trainer"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.model
+    command: >
+      torchrun --nproc_per_node=2 /app/ml/training/train_t5_description.py
+      --train /app/ml/data/generated/train.jsonl
+      --val /app/ml/data/generated/val.jsonl
+      --out /app/ml/checkpoints/t5-description
+    environment:
+      MODEL_DEVICE: cuda
+    volumes:
+      - checkpoints:/app/ml/checkpoints
+      - ./ml/data:/app/ml/data
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 2
+    #           capabilities: [gpu]
+
+volumes:
+  pgdata:
+  assets:
+  faiss:
+  checkpoints:
