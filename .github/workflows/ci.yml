@@ -184,6 +184,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+      # The integration tests and the seed script are standard library only, but
+      # they are run through pytest, so it has to be here. Without this the job
+      # failed on "No module named pytest" after the stack had already booted.
+      - run: pip install pytest
       - name: Boot the stack
         run: |
           docker compose up --build -d --wait --wait-timeout 420
