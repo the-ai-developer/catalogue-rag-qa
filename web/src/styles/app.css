@@ -1,0 +1,55 @@
+/* Component styles — plain CSS, 8px spacing scale (see tokens.css). */
+.layout { display: flex; min-height: 100vh; }
+.sidebar { width: 260px; padding: 24px 16px; border-right: 1px solid var(--border, #e2e2e2); display: flex; flex-direction: column; gap: 16px; }
+.sidebar h1 { font-size: 20px; margin: 0; }
+.sidebar h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted, #777); margin: 0 0 8px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 8px; }
+.sidebar-section { display: flex; flex-direction: column; gap: 6px; }
+.sidebar-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+.content { flex: 1; padding: 32px; max-width: 1080px; }
+h2.page-title { margin-top: 0; }
+.muted { color: var(--muted, #777); }
+.small { font-size: 12px; }
+.row { display: flex; gap: 16px; }
+.card { background: var(--surface, #fff); border: 1px solid var(--border, #e2e2e2); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.card header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.item-card { cursor: pointer; }
+.item-card:hover { border-color: var(--accent, #4b7bec); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border, #ddd); }
+.badge-ok { background: #e6f6ec; color: #14663a; }
+.badge-info { background: #e7f0fe; color: #1c4fa1; }
+.badge-warn { background: #fef4e2; color: #8a5a12; }
+.badge-bad { background: #fdeaea; color: #a12828; }
+.badge-neutral { background: #f1f1f1; color: #555; }
+.btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border, #ccc); background: #fff; cursor: pointer; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary { background: var(--accent, #4b7bec); border-color: var(--accent, #4b7bec); color: #fff; }
+.btn-danger { background: #fff; border-color: #a12828; color: #a12828; }
+.input { width: 100%; padding: 8px 12px; border: 1px solid var(--border, #ccc); border-radius: 8px; font: inherit; box-sizing: border-box; }
+.form label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 14px; }
+/* Column, not row: a banner holds a heading plus a paragraph, and `display:flex`
+   with the default row direction laid them out side by side ("Retrieval is
+   degraded.  SBERT and CLIP outputs are not aligned…"). The close button is
+   absolutely positioned so it does not need a flex row. */
+.banner { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px; position: relative; padding-right: 40px; }
+.banner p { margin: 0; }
+.banner-error { background: #fdeaea; color: #a12828; }
+.banner-warn { background: #fef4e2; color: #8a5a12; }
+.banner-ok { background: #e9f7ee; color: #1c6b3c; }
+.banner-close { position: absolute; top: 8px; right: 10px; background: none; border: none; cursor: pointer; font-size: 18px; line-height: 1; color: inherit; opacity: .6; }
+.banner-close:hover { opacity: 1; }
+.skeleton { padding: 24px; color: var(--muted, #888); border: 1px dashed var(--border, #ddd); border-radius: 8px; }
+.citation { list-style: none; border-top: 1px solid var(--border, #eee); padding: 8px 0; }
+.citation header { display: flex; gap: 8px; align-items: center; }
+.snippet { margin: 4px 0 0; font-size: 13px; color: var(--muted, #555); }
+.draft-card { display: block; cursor: pointer; }
+.draft-card.selected { border-color: var(--accent, #4b7bec); box-shadow: 0 0 0 2px rgba(75, 123, 235, .2); }
+.dropzone { display: block; border: 2px dashed var(--border, #ccc); border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; margin-bottom: 16px; }
+.job-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.pulse { color: var(--accent, #4b7bec); font-size: 13px; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .4; } }
+.answer { font-size: 16px; line-height: 1.6; white-space: pre-wrap; }
+.search { margin-bottom: 16px; }
+table.quotes { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.quotes td, table.quotes th { border-bottom: 1px solid var(--border, #eee); padding: 6px 8px; text-align: left; }

@@ -1,0 +1,93 @@
+/* ---------------------------------------------------------------------------
+ * Design tokens — single source of truth for the hand-rolled UI.
+ * ------------------------------------------------------------------------- */
+:root {
+  /* Colour — neutral ramp */
+  --c-bg: #f6f7f9;
+  --c-surface: #ffffff;
+  --c-surface-2: #eef1f5;
+  --c-border: #d8dee6;
+  --c-border-strong: #b7c1cd;
+  --c-text: #16202c;
+  --c-text-muted: #5b6b7c;
+  --c-text-faint: #8494a5;
+
+  /* Colour — brand + semantic */
+  --c-accent: #2158d0;
+  --c-accent-hover: #1a46a6;
+  --c-accent-soft: #e3ebfc;
+  --c-success: #1c7c47;
+  --c-success-soft: #dff3e7;
+  --c-warning: #9a6400;
+  --c-warning-soft: #fbf0d9;
+  --c-danger: #b3261e;
+  --c-danger-soft: #fbe4e2;
+  --c-info: #0f6c86;
+  --c-info-soft: #dcf0f6;
+  --c-neutral-soft: #e7ebf0;
+  --c-withheld: #7a3ea1;
+  --c-withheld-soft: #f1e6f8;
+
+  /* Typography */
+  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'SFMono-Regular', 'JetBrains Mono', Consolas, monospace;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-md: 0.9375rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.375rem;
+  --fs-2xl: 1.75rem;
+  --lh-tight: 1.25;
+  --lh-normal: 1.55;
+
+  /* Spacing (4px scale) */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-8: 3rem;
+
+  /* Radius / shadow / motion */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(16, 32, 54, 0.08);
+  --shadow-2: 0 4px 14px rgba(16, 32, 54, 0.12);
+  --transition: 140ms ease;
+
+  /* Layout */
+  --max-width: 1120px;
+  --header-h: 56px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-bg: #0f1620;
+    --c-surface: #17212d;
+    --c-surface-2: #1e2a38;
+    --c-border: #2b3a4b;
+    --c-border-strong: #41566d;
+    --c-text: #e8eef5;
+    --c-text-muted: #a2b2c3;
+    --c-text-faint: #74879b;
+    --c-accent: #6f9bff;
+    --c-accent-hover: #8db2ff;
+    --c-accent-soft: #1c2c4c;
+    --c-success: #5cc98a;
+    --c-success-soft: #143326;
+    --c-warning: #e2b25c;
+    --c-warning-soft: #3a2c12;
+    --c-danger: #f2837a;
+    --c-danger-soft: #3c1a18;
+    --c-info: #63c2da;
+    --c-info-soft: #12313a;
+    --c-neutral-soft: #243141;
+    --c-withheld: #c294e0;
+    --c-withheld-soft: #2c1c3a;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.5);
+  }
+}
