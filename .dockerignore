@@ -1,0 +1,57 @@
+# Build context exclusions.
+#
+# Without this, `web/node_modules` (hundreds of MB, built for the host) is
+# copied into the image and can overwrite the container's freshly installed
+# dependencies. It also leaked into the build as 0444 and made the vite binary
+# non-executable, so `npm run build` failed with "vite: Permission denied".
+
+# --- version control & tooling ---
+.git
+.github
+.gitignore
+.editorconfig
+.vscode
+.idea
+
+# --- secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+deploy/k8s/secret.yaml
+
+# --- node ---
+web/node_modules
+web/dist
+web/.vite
+web/coverage
+**/node_modules
+**/dist
+
+# --- python ---
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.coverage
+**/htmlcov
+.venv
+venv
+
+# --- generated data, weights, run artefacts ---
+ml/data/generated
+ml/checkpoints
+ml/runs
+ml/notebooks/*.ipynb
+data
+*.faiss
+faiss_index*/
+*.pt
+*.onnx
+*.safetensors
+
+# --- local runtime ---
+/tmp
+*.log
+.DS_Store

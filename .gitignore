@@ -1,0 +1,47 @@
+# ---- build artefacts ----
+**/dist/
+**/build/
+**/*.pyc
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/node_modules/
+web/.vite/
+services/api/bin/
+services/api/catalogue-api
+
+# ---- test & coverage artefacts ----
+**/coverage/
+coverage.out
+.coverage
+coverage.xml
+web/test-results/
+web/playwright-report/
+web/blob-report/
+.playwright/
+.pytest_cache/
+**/.pytest_cache/
+
+# ---- runtime data (never commit) ----
+/data/
+*.faiss
+faiss_index*/
+ml/checkpoints/
+ml/runs/
+ml/data/generated/
+*.pt
+*.onnx
+
+# ---- env & secrets ----
+.env
+.env.local
+*.pem
+*.key
+deploy/k8s/secret.yaml
+
+# ---- editors / OS ----
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.openclaw/tmp/
