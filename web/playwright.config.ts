@@ -32,9 +32,13 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     launchOptions: {
-      // The image is deliberately Linux-only; use whatever chromium the host has
-      // rather than downloading one.
-      executablePath: process.env.CHROME_PATH || '/usr/bin/chromium',
+      // Only override the browser when CHROME_PATH is set, and it has to be a
+      // real path. A glob such as chromium-*/chrome never expands inside an
+      // environment variable, so Playwright received the literal string and
+      // reported that the executable did not exist. Hardcoding a fallback had
+      // the mirror problem: it stopped Playwright from ever using the browser
+      // it downloaded for itself.
+      ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
       args: ['--no-sandbox', '--disable-dev-shm-usage'],
     },
   },

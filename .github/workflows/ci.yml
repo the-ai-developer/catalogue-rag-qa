@@ -127,8 +127,8 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: the e2e job below uses the runner's
-      # own chromium via CHROME_PATH, so a ~400 MB download here is wasted.
+      # The e2e job installs its own browser, so the ~400 MB download is
+      # repeated here for no reason. The unit tests never launch a browser.
       - run: npm ci
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
@@ -201,9 +201,11 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
+          # No CHROME_PATH: playwright uses the chromium installed just above. A
+          # glob never expands inside an env var, so the old value reached
+          # playwright literally and every test failed to launch a browser.
           BASE_URL=http://localhost:8081 \
           API_KEY=local-dev-admin-key \
-          CHROME_PATH=/home/runner/.cache/ms-playwright/chromium-*/chrome-linux/chrome \
           npx playwright test
       - name: Publish the Playwright report
         if: always()

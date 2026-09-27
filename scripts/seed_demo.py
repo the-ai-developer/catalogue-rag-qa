@@ -6,8 +6,9 @@ ingest for each, then exercises Project 1 (3 grounded questions) and Project 2
 (one spec → description job). Pure stdlib — runs anywhere.
 
 **Idempotent.** SKUs are derived from the item title, so a second run reuses the
-existing items instead of failing 20 times with 409 Conflict. Pass --reset to
-archive and recreate them.
+existing items instead of failing 20 times with 409 Conflict. --reset would
+delete them first, but the api has no delete route, so it exits with an error
+telling you to run `docker compose down -v` instead.
 
     python scripts/seed_demo.py --api-base http://localhost:8080 \
         --api-key local-dev-admin-key [--ingest-only] [--no-images] [--reset]
@@ -189,7 +190,9 @@ def main() -> int:
     ap.add_argument("--no-images", dest="images", action="store_false",
                     help="skip product photos (much faster; skips the image index)")
     ap.add_argument("--reset", action="store_true",
-                    help="archive existing demo items before recreating them")
+                    help="delete existing demo items before recreating them "
+                         "(needs DELETE /api/v1/items/{id}; the api does not "
+                         "implement it yet, so use `docker compose down -v` instead)")
     ap.add_argument("--wait-secs", type=int, default=180)
     ap.set_defaults(images=True)
     args = ap.parse_args()
@@ -214,7 +217,16 @@ def main() -> int:
             if args.reset:
                 existing = find_by_sku(base, key, sku)
                 if existing:
-                    call(base, key, "DELETE", f"/api/v1/items/{existing['id']}")
+                    code, body = call(base, key, "DELETE",
+                                      f"/api/v1/items/{existing['id']}")
+                    if code == 404:
+                        # There is no delete route. Say so instead of continuing
+                        # and leaving the caller to wonder why nothing changed.
+                        print("--reset needs DELETE /api/v1/items/{id}, which this "
+                              "api does not implement (404).\n"
+                              "Recreate the stack with `docker compose down -v` to "
+                              "start from an empty catalogue.", file=sys.stderr)
+                        return 1
             item = find_by_sku(base, key, sku)
             if item is None:
                 code, item = call(base, key, "POST", "/api/v1/items", {
